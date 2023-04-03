@@ -9,11 +9,13 @@ import tensorflow as tf
 import tensorflow as tf
 from PIL import Image
 from rembg import remove
-from pymongo import MongoClient
+import base64
+# from pymongo import MongoClient
+from flask_pymongo import MongoClient
 # Keras
 # from tensorflow.keras.applications.resnet50 import preprocess_input
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
+from keras.models import load_model
+from keras.utils import load_img,img_to_array
 
 # Flask utils
 from flask import Flask, redirect, url_for, request, render_template
@@ -23,6 +25,7 @@ import sqlite3
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask import session
+from keras.applications.inception_v3 import preprocess_input 
 #from gevent.pywsgi import WSGIServer
 
 # Define a flask app
@@ -34,7 +37,7 @@ mongo=MongoClient("mongodb+srv://root:2506@cluster0.3azljoe.mongodb.net/?retryWr
 dbb=mongo.get_database("LoginDetails")
 user=dbb.get_collection("users")
 members=dbb.get_collection("members")
-history=dbb.get_collection("history")
+histories=dbb.get_collection("history")
 app.app_context().push()
 
 db = SQLAlchemy(app)
@@ -60,16 +63,16 @@ model = load_model(MODEL_PATH)
 def convertToBinaryData(filename):
     
     with open(filename, 'rb') as file:
-        blobData = file.read()
+        blobData = base64.b64encode(file.read())
+    file.close()
     return blobData
 
 def model_predict(img_path, model):
     print(img_path)
-    img = image.load_img(img_path, target_size=(224, 224))
-
+    img =load_img(img_path, target_size=(224, 224))
 
     # Preprocessing the image
-    x = image.img_to_array(img)
+    x = img_to_array(img)
     # x = np.true_divide(x, 255)
     ## Scaling
     x=x/255
@@ -108,10 +111,14 @@ def model_predict(img_path, model):
     # sqlite_insert_blob_query = " INSERT INTO history (id_user, image_url, disease, date_time) VALUES (?, ?, ?, ?)"
 
     # empPhoto = convertToBinaryData(img_path)
+    imagefile=open(img_path,"rb")
+    empPhoto=base64.b64encode(imagefile.read())
+    imagefile.close()
     # data_tuple = (uid,empPhoto,preds, datetime.now())
     # con.execute(sqlite_insert_blob_query, data_tuple)
     # conn.commit()
     # history.update_one({"_id":uid},{"history":[{"image_url":empPhoto,"disease":preds,"date_time":datetime.now()}]})
+    histories.update_one({"_id":uid},{"$addToSet":{"history":{"image_url":empPhoto,"disease":preds,"date_time":datetime.now()}}})
     return preds 
 
 
@@ -210,13 +217,16 @@ def login():
         #     return redirect(url_for('home'))
         # else:
         #     return render_template('login.html', err=True)
-        loginuser = user.find_one({"username":username})
-        passwrd=loginuser['password']
-        if bcrypt.check_password_hash(passwrd,password):
-            session['username']=username
-            global uid
-            uid=loginuser['_id']
-            return redirect(url_for('home'))
+        if user.find_one({"username":username}):
+            loginuser=user.find_one({"username":username})
+            passwrd=loginuser['password']
+            if bcrypt.check_password_hash(passwrd,password):
+                session['username']=username
+                global uid
+                uid=loginuser['_id']
+                return redirect(url_for('home'))
+            else:
+                return render_template('login.html',err=True)
         else:
             return render_template('login.html',err=True)
     else:
@@ -243,15 +253,16 @@ def signup():
     #         return redirect(url_for('home'))
     # else:
     #     return render_template('signup.html')
-        exisistinguser=user.find_one({"username":username})
-        if exisistinguser is None:
+        
+        if user.find_one({"username":username}) is None:
+            exisistinguser=user.find_one({"username":username})
             hash_pass=bcrypt.generate_password_hash(password)
             user.insert_one({"username":username,"email":email,"password":hash_pass})
             loginuser=user.find_one({"username":username})
             global uid
             uid=loginuser['_id']
             members.insert_one({"_id":uid,"full_name":"","mobile_no":"","profession":"","city":"","pre_lang":"","pro_pic":""})
-            history.insert_one({"_id":uid,"history":[]})
+            histories.insert_one({"_id":uid,"history":[]})
             session['username']=username
             return redirect(url_for('home'))
         else:
@@ -281,25 +292,34 @@ def profile():
 def writeTofile(data, filename):
     # Convert binary data to proper format and write it on Hard Disk
     with open(filename, 'wb') as file:
-        file.write(data)
+        file.write(base64.b64decode(data))
 
 @app.route('/history.html')
 def history():
-    conn=sqlite3.connect('instance/users.db')
-    con=conn.cursor()
-    stat=f"SELECT * FROM history WHERE id_user='{uid}'"
-    con.execute(stat)
-    data = con.fetchall()
+    img_id=1
+    # conn=sqlite3.connect('instance/users.db')
+    # con=conn.cursor()
+    # stat=f"SELECT * FROM history WHERE id_user='{uid}'"
+    # con.execute(stat)
+    # data = con.fetchall()
+    data=histories.find_one({"_id":uid})
+    data=data["history"]
+    data_1=[]
     img=[]
     for i in data:
-        n=str(i[0])
         # photoPath = "C:/Users/Sony/Documents/SoftwareEngineeringProject-PlantDiseaseDetection/static/profile_image/" +n + ".jpg" 
-        photoPath = "uploads/" +n + ".jpg" 
-        writeTofile(i[2], photoPath)
+        photoPath = os.getcwd()+"/uploads/" +str(img_id)+ ".png" 
+        # with open(photoPath,"wb") as imagefile:
+        #     imagefile.write(base64.b64decode(i["image_url"]))
+        # imagefile.close()
+        writeTofile(i["image_url"],photoPath)
         img+=(photoPath,)
         # img+=(n+".jpg",)
+        temp=(img_id,uid,photoPath,i["disease"],i["date_time"])
+        data_1.append(temp)
+        img_id+=1
     print(img)
-    return render_template('history.html', logs=zip(data, img))
+    return render_template('history.html', logs=zip(data_1, img))
 
 @app.route('/about.html')
 def about():
@@ -349,6 +369,7 @@ def update_profile():
 @app.route('/logout')
 def logout():
     session.pop('username', None)
+    img_id=1
     return render_template('first.html')
 
 app.run(debug=True)
