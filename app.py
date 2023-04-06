@@ -66,6 +66,10 @@ def convertToBinaryData(filename):
         blobData = base64.b64encode(file.read())
     file.close()
     return blobData
+def convertToBinaryData2(filename):
+    with open(filename,"rb") as file:
+        blobdata=file.read();
+    return blobdata
 
 def model_predict(img_path, model):
     print(img_path)
@@ -224,6 +228,7 @@ def login():
                 session['username']=username
                 global uid
                 uid=loginuser['_id']
+                print(uid)
                 return redirect(url_for('home'))
             else:
                 return render_template('login.html',err=True)
@@ -308,7 +313,7 @@ def history():
     img=[]
     for i in data:
         # photoPath = "C:/Users/Sony/Documents/SoftwareEngineeringProject-PlantDiseaseDetection/static/profile_image/" +n + ".jpg" 
-        photoPath = os.getcwd()+"/uploads/" +str(img_id)+ ".png" 
+        photoPath = os.getcwd()+"/uploads/" +str(uid)+"_"+str(img_id)+ ".png" 
         # with open(photoPath,"wb") as imagefile:
         #     imagefile.write(base64.b64decode(i["image_url"]))
         # imagefile.close()
@@ -348,7 +353,7 @@ def update_profile():
         basepath = os.path.dirname(__file__)
         file_path = os.path.join(
             basepath, 'img',"farmer-image.png")
-        empPhoto = convertToBinaryData("/home/pritam/Documents/SoftwareEngineeringProject-PlantDiseaseDetection/img/farmer-image.png")
+        empPhoto = convertToBinaryData2("/home/pritammandal/Documents/MongoDB-SoftwareEngineeringProject/img/farmer-image.png")
         print(uid) 
         data_tuple = (uid,uname, phone, job,city,"ENGLISH",empPhoto)
         members.update_one({"_id":uid},{"$set":{"full_name":uname,"mobile_no":phone,"profession":job,"city":city,"pre_lang":"ENGLISH","pro_pic":empPhoto}})
